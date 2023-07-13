@@ -49,3 +49,4 @@ Lets you search by markdown titles like the "Open zettel" command above, but ins
 - [jvanz](https://github.com/jvanz)
 - [pauloday](https://github.com/pauloday)
 - [quarterdane](https://github.com/quarterdane)
+- [barnes7td](https://github.com/barnes7td)

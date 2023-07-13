@@ -52,6 +52,7 @@ interface LuhmanSettings {
   addTitle: boolean;
   addAlias: boolean;
   useLinkAlias: boolean;
+  customTemplate: boolean;
   templateFile: string;
   templateRequireTitle: boolean;
   templateRequireLink: boolean;
@@ -65,6 +66,7 @@ const DEFAULT_SETTINGS: LuhmanSettings = {
   addAlias: false,
   useLinkAlias: false,
   separator: "⁝ ",
+  customTemplate: false,
   templateFile: "",
   templateRequireTitle: true,
   templateRequireLink: true,
@@ -88,6 +90,7 @@ class LuhmanSettingTab extends PluginSettingTab {
       addTitle,
       addAlias,
       useLinkAlias,
+      customTemplate,
       templateFile,
       templateRequireTitle,
       templateRequireLink,
@@ -115,25 +118,37 @@ class LuhmanSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
             this.display();
           })
+        );
+
+    new Setting(containerEl.createDiv())
+      .setName("Use a custom template")
+      .setDesc(
+        "Use a custom template file for new notes"
+      )
+      .addToggle((setting) =>
+        setting.setValue(customTemplate).onChange(async (value) => {
+          this.plugin.settings.customTemplate = value;
+          await this.plugin.saveSettings();
+          this.display();
+        })
       );
 
-    new Setting(containerEl)
-      .setName("Template File")
-      .setDesc(
-        "Set the path to a template file that is used during the creation of a new note (with file extension). The template supported placeholders are {{title}} and {{link}} these are both space-sensitive and case-sensitive."
-      )
-      .addText((setting) => {
-        setting
-          .setPlaceholder("eg. /template/luhman.md")
-          .setValue(templateFile)
-          .onChange(async (value) => {
-            this.plugin.settings.templateFile = value;
-            await this.plugin.saveSettings();
-            this.display();
-          });
-      });
+    if (this.plugin.settings.customTemplate) {
+      new Setting(containerEl)
+        .setName("Template File")
+        .setDesc(
+          "Set the path to a template file that is used during the creation of a new note (with file extension). The template supported placeholders are {{title}} and {{link}} these are both space-sensitive and case-sensitive."
+        )
+        .addText((setting: Setting) => {
+          setting
+            .setPlaceholder("eg. /template/luhman.md")
+            .setValue(templateFile)
+            .onChange(async (value) => {
+              this.plugin.settings.templateFile = value;
+              await this.plugin.saveSettings();
+            });
+        });
 
-    if (templateFile.trim().length != 0) {
       new Setting(containerEl.createDiv())
         .setName("Require Template Title Tag")
         .setDesc(
@@ -357,7 +372,7 @@ export default class NewZettel extends Plugin {
     }
   ) {
     const useTemplate =
-      this.settings.templateFile && this.settings.templateFile.trim() != "";
+      this.settings.customTemplate && this.settings.templateFile.trim() != "";
     const app = this.app;
     let titleContent = null;
     if (title && title.length > 0) {
@@ -443,7 +458,7 @@ export default class NewZettel extends Plugin {
 
     if (
       placeCursorAtStartOfContent &&
-      (!this.settings.templateFile || this.settings.templateFile.trim() == "")
+      (!this.settings.customTemplate || this.settings.templateFile.trim() == "")
     ) {
       let line = 2;
       if (this.settings.addAlias) {
@@ -510,11 +525,14 @@ export default class NewZettel extends Plugin {
           .map((w) => w[0].toUpperCase() + w.slice(1))
           .join(" ");
         const selectionPos = editor!.listSelections()[0];
-
+        /* By default the anchor is what ever position the selection started
+           how ever replaceRange does not accept it both ways and
+           gets weird if we just pass in the anchor then the head
+           so here we create a vertual anchor and head position to pass in */
         const anchorCorrect =
-          selectionPos.anchor.line == selectionPos.head.line
-            ? selectionPos.anchor.ch <= selectionPos.head.ch
-            : selectionPos.anchor.line < selectionPos.head.line;
+          selectionPos.anchor.line == selectionPos.head.line // If the anchor and head are on the same line
+            ? selectionPos.anchor.ch <= selectionPos.head.ch // Then if anchor is before the head
+            : selectionPos.anchor.line < selectionPos.head.line; // else they are not on the same line and just check if anchor is before head
 
         const virtualAnchor = anchorCorrect
           ? selectionPos.anchor
