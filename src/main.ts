@@ -55,6 +55,8 @@ interface LuhmanSettings {
   templateFile: string;
   templateRequireTitle: boolean;
   templateRequireLink: boolean;
+  insertLinkInParent: boolean;
+  insertLinkInChild: boolean;
 }
 
 const DEFAULT_SETTINGS: LuhmanSettings = {
@@ -66,6 +68,8 @@ const DEFAULT_SETTINGS: LuhmanSettings = {
   templateFile: "",
   templateRequireTitle: true,
   templateRequireLink: true,
+  insertLinkInParent: true,
+  insertLinkInChild: true,
 };
 
 class LuhmanSettingTab extends PluginSettingTab {
@@ -215,6 +219,25 @@ class LuhmanSettingTab extends PluginSettingTab {
             })
         );
     }
+
+    new Setting(containerEl)
+      .setName("Insert link in parent")
+      .setDesc("When creating a child zettel, insert a link to the child in the parent zettel")
+      .addToggle((setting) =>
+        setting.setValue(this.plugin.settings.insertLinkInParent).onChange(async (value) => {
+          this.plugin.settings.insertLinkInParent = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Insert link in child")
+      .setDesc("When creating a child zettel, insert a link to the parent in the child zettel")
+      .addToggle((setting) =>
+        setting.setValue(this.plugin.settings.insertLinkInChild).onChange(async (value) => {
+          this.plugin.settings.insertLinkInChild = value;
+          await this.plugin.saveSettings();
+        }));
   }
 }
 
@@ -346,6 +369,7 @@ export default class NewZettel extends Plugin {
     let file = null;
     const backlinkRegex = /{{link}}/g;
     const titleRegex = /{{title}}/g;
+  
     if (useTemplate) {
       let template_content = "";
       try {
@@ -378,18 +402,23 @@ export default class NewZettel extends Plugin {
         return;
       }
 
+      const linkContent = this.settings.insertLinkInChild ? fileLink : "";
       const file_content = template_content
         .replace(titleRegex, titleContent)
-        .replace(backlinkRegex, fileLink);
+        .replace(backlinkRegex, linkContent);
       file = await this.app.vault.create(path, file_content);
       successCallback();
     } else {
-      const fullContent = titleContent + "\n\n" + fileLink;
+      const linkContent = this.settings.insertLinkInChild ? fileLink : "";
+      let fullContent = titleContent;
+      if (linkContent.trim()) {
+        fullContent += "\n\n" + linkContent;
+      }
       file = await this.app.vault.create(path, fullContent);
-
       successCallback();
     }
 
+    // Rest of the method remains the same...
     if (this.settings.addAlias && file) {
       await this.app.fileManager.processFrontMatter(file, (frontMatter) => {
         frontMatter = frontMatter || {};
@@ -419,6 +448,9 @@ export default class NewZettel extends Plugin {
       let line = 2;
       if (this.settings.addAlias) {
         line += 4;
+      }
+      if (this.settings.insertLinkInChild && linkContent.trim()) {
+        line += 2; 
       }
       const position: EditorPosition = { line, ch: 0 };
       editor.setCursor(position);
@@ -467,11 +499,8 @@ export default class NewZettel extends Plugin {
           this.settings.addTitle ? this.settings.separator + title : ""
         }${alias}]]`;
       };
-      // const newLink = "[[" + nextID + "]]";
 
       if (selection) {
-        // This current solution eats line returns spaces but thats
-        // fine as it is turning the selection into a title so it makes sense
         const selectionTrimStart = selection.trimStart();
         const selectionTrimEnd = selectionTrimStart.trimEnd();
         const spaceBefore = selection.length - selectionTrimStart.length;
@@ -481,23 +510,19 @@ export default class NewZettel extends Plugin {
           .map((w) => w[0].toUpperCase() + w.slice(1))
           .join(" ");
         const selectionPos = editor!.listSelections()[0];
-        /* By default the anchor is what ever position the selection started
-           how ever replaceRange does not accept it both ways and 
-           gets weird if we just pass in the anchor then the head
-           so here we create a vertual anchor and head position to pass in */
-        const anchorCorrect =
-          selectionPos.anchor.line == selectionPos.head.line // If the anchor and head are on the same line
-            ? selectionPos.anchor.ch <= selectionPos.head.ch // Then if anchor is before the head
-            : selectionPos.anchor.line < selectionPos.head.line; // else they are not on the same line and just check if anchor is before head
 
-        // if anchorCorrect use as is, else switch
+        const anchorCorrect =
+          selectionPos.anchor.line == selectionPos.head.line
+            ? selectionPos.anchor.ch <= selectionPos.head.ch
+            : selectionPos.anchor.line < selectionPos.head.line;
+
         const virtualAnchor = anchorCorrect
           ? selectionPos.anchor
           : selectionPos.head;
         const virtualHead = anchorCorrect
           ? selectionPos.head
           : selectionPos.anchor;
-        // editor!.replaceRange(" ".repeat(spaceBefore) + newLink(title) + " ".repeat(spaceAfter), virtualAnchor, virtualHead);
+
         this.makeNote(
           nextPath(title),
           title,
@@ -505,11 +530,14 @@ export default class NewZettel extends Plugin {
           true,
           openNewFile,
           () => {
-            editor!.replaceRange(
-              " ".repeat(spaceBefore) + newLink(title) + " ".repeat(spaceAfter),
-              virtualAnchor,
-              virtualHead
-            );
+            // Only insert link in parent if the setting is enabled
+            if (this.settings.insertLinkInParent) {
+              editor!.replaceRange(
+                " ".repeat(spaceBefore) + newLink(title) + " ".repeat(spaceAfter),
+                virtualAnchor,
+                virtualHead
+              );
+            }
           }
         );
       } else {
@@ -522,7 +550,8 @@ export default class NewZettel extends Plugin {
               fileLink,
               true,
               options.openNewZettel,
-              this.insertTextIntoCurrentNote(newLink(title))
+              // Only insert link in parent if the setting is enabled
+              this.settings.insertLinkInParent ? this.insertTextIntoCurrentNote(newLink(title)) : () => {}
             );
           },
           {
