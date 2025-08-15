@@ -4,6 +4,16 @@
 
 Commands for handling a zettelkasten with Luhmann-style IDs (e.g: 12a56g) as filenames
 
+## Maintenance Status
+This is a community fork maintained by someone who knows *just enough* 
+TypeScript to be dangerous. I can:
+- ✅ Merge simple bug fixes
+- ✅ Update documentation
+- ❌ Add complex new features
+- ❌ Debug weird TypeScript issues
+
+PRs welcome, especially from actual TypeScript developers!
+
 ## Commands
 
 ### Create child notes
