@@ -1,10 +1,15 @@
 import { App, FuzzyMatch, FuzzySuggestModal, Modal, TFile } from "obsidian";
 import type { ZettelModelCallback, ZettelModelOptions } from "./types";
 
+const MakeZettelModelOptionDefault: () => ZettelModelOptions = () => ({
+  openNewZettel: true,
+});
+
 export class NewZettelModal extends Modal {
   public completion: ZettelModelCallback;
   private textBox: HTMLInputElement;
   private openNewZettelCheckbox: HTMLInputElement;
+
 
   constructor(
     app: App,
