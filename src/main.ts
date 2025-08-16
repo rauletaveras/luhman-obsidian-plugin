@@ -15,6 +15,8 @@ import {
   TFile,
 } from "obsidian";
 
+const checkSettingsMessage = "Try checking the settings if this seems wrong.";
+
 interface LuhmanSettings {
   matchRule: string;
   separator: string;
@@ -108,16 +110,15 @@ class LuhmanSettingTab extends PluginSettingTab {
         .setDesc(
           "Set the path to a template file that is used during the creation of a new note (with file extension). The template supported placeholders are {{title}} and {{link}} these are both space-sensitive and case-sensitive."
         )
-        .addText((setting: Setting) => {
-          setting
-            .setPlaceholder("eg. /template/luhman.md")
-            .setValue(templateFile)
-            .onChange(async (value) => {
-              this.plugin.settings.templateFile = value;
-              await this.plugin.saveSettings();
-            });
-        });
-
+        .addText((text) => {  // Remove `: Setting` type annotation
+                  text
+                    .setPlaceholder("eg. /template/luhman.md")
+                    .setValue(templateFile)
+                    .onChange(async (value: string) => {  // Add `: string` type
+                      this.plugin.settings.templateFile = value;
+                      await this.plugin.saveSettings();
+                    });
+                });
       new Setting(containerEl.createDiv())
         .setName("Require Template Title Tag")
         .setDesc(
@@ -227,7 +228,7 @@ class LuhmanSettingTab extends PluginSettingTab {
 
 export default class NewZettel extends Plugin {
   settings: LuhmanSettings = DEFAULT_SETTINGS;
-  private idUtils: IDUtils;
+  private idUtils!: IDUtils;
 
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -288,7 +289,8 @@ export default class NewZettel extends Plugin {
     let file = null;
     const backlinkRegex = /{{link}}/g;
     const titleRegex = /{{title}}/g;
-  
+    const linkContent = this.settings.insertLinkInChild ? fileLink : "";  
+
     if (useTemplate) {
       let template_content = "";
       try {
@@ -321,14 +323,12 @@ export default class NewZettel extends Plugin {
         return;
       }
 
-      const linkContent = this.settings.insertLinkInChild ? fileLink : "";
       const file_content = template_content
         .replace(titleRegex, titleContent)
         .replace(backlinkRegex, linkContent);
       file = await this.app.vault.create(path, file_content);
       successCallback();
     } else {
-      const linkContent = this.settings.insertLinkInChild ? fileLink : "";
       let fullContent = titleContent;
       if (linkContent.trim()) {
         fullContent += "\n\n" + linkContent;
@@ -337,7 +337,6 @@ export default class NewZettel extends Plugin {
       successCallback();
     }
 
-    // Rest of the method remains the same...
     if (this.settings.addAlias && file) {
       await this.app.fileManager.processFrontMatter(file, (frontMatter) => {
         frontMatter = frontMatter || {};
