@@ -4,6 +4,20 @@
 
 Commands for handling a zettelkasten with Luhmann-style IDs (e.g: 12a56g) as filenames
 
+## Maintenance Status
+This is a community fork maintained by someone who knows *just enough* 
+TypeScript to be dangerous. I can:
+- ✅ Merge simple bug fixes
+- ✅ Update documentation
+- ❌ Add complex new features
+- ❌ Debug weird TypeScript issues
+
+PRs welcome, especially from actual TypeScript developers!
+
+### Incorporated fixes
+- [PR #60: feat: Add setting to not include link in parent when creating child note](https://github.com/Dyldog/luhman-obsidian-plugin/pull/60): Addresses [#54](https://github.com/Dyldog/luhman-obsidian-plugin/issues/54)
+- [Commit #80a7387](https://github.com/barnes7td/luhman-obsidian-plugin/commit/80a7387bf3b82a2f6f822b4d50ec534d4278ccbb): Fixes [#52](https://github.com/Dyldog/luhman-obsidian-plugin/issues/52)
+
 ## Commands
 
 ### Create child notes
@@ -39,3 +53,4 @@ Lets you search by markdown titles like the "Open zettel" command above, but ins
 - [jvanz](https://github.com/jvanz)
 - [pauloday](https://github.com/pauloday)
 - [quarterdane](https://github.com/quarterdane)
+- [barnes7td](https://github.com/barnes7td)

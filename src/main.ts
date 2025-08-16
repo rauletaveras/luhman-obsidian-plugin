@@ -52,9 +52,12 @@ interface LuhmanSettings {
   addTitle: boolean;
   addAlias: boolean;
   useLinkAlias: boolean;
+  customTemplate: boolean;
   templateFile: string;
   templateRequireTitle: boolean;
   templateRequireLink: boolean;
+  insertLinkInParent: boolean;
+  insertLinkInChild: boolean;
 }
 
 const DEFAULT_SETTINGS: LuhmanSettings = {
@@ -63,9 +66,12 @@ const DEFAULT_SETTINGS: LuhmanSettings = {
   addAlias: false,
   useLinkAlias: false,
   separator: "⁝ ",
+  customTemplate: false,
   templateFile: "",
   templateRequireTitle: true,
   templateRequireLink: true,
+  insertLinkInParent: true,
+  insertLinkInChild: true,
 };
 
 class LuhmanSettingTab extends PluginSettingTab {
@@ -84,6 +90,7 @@ class LuhmanSettingTab extends PluginSettingTab {
       addTitle,
       addAlias,
       useLinkAlias,
+      customTemplate,
       templateFile,
       templateRequireTitle,
       templateRequireLink,
@@ -111,25 +118,37 @@ class LuhmanSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
             this.display();
           })
+        );
+
+    new Setting(containerEl.createDiv())
+      .setName("Use a custom template")
+      .setDesc(
+        "Use a custom template file for new notes"
+      )
+      .addToggle((setting) =>
+        setting.setValue(customTemplate).onChange(async (value) => {
+          this.plugin.settings.customTemplate = value;
+          await this.plugin.saveSettings();
+          this.display();
+        })
       );
 
-    new Setting(containerEl)
-      .setName("Template File")
-      .setDesc(
-        "Set the path to a template file that is used during the creation of a new note (with file extension). The template supported placeholders are {{title}} and {{link}} these are both space-sensitive and case-sensitive."
-      )
-      .addText((setting) => {
-        setting
-          .setPlaceholder("eg. /template/luhman.md")
-          .setValue(templateFile)
-          .onChange(async (value) => {
-            this.plugin.settings.templateFile = value;
-            await this.plugin.saveSettings();
-            this.display();
-          });
-      });
+    if (this.plugin.settings.customTemplate) {
+      new Setting(containerEl)
+        .setName("Template File")
+        .setDesc(
+          "Set the path to a template file that is used during the creation of a new note (with file extension). The template supported placeholders are {{title}} and {{link}} these are both space-sensitive and case-sensitive."
+        )
+        .addText((setting: Setting) => {
+          setting
+            .setPlaceholder("eg. /template/luhman.md")
+            .setValue(templateFile)
+            .onChange(async (value) => {
+              this.plugin.settings.templateFile = value;
+              await this.plugin.saveSettings();
+            });
+        });
 
-    if (templateFile.trim().length != 0) {
       new Setting(containerEl.createDiv())
         .setName("Require Template Title Tag")
         .setDesc(
@@ -215,6 +234,25 @@ class LuhmanSettingTab extends PluginSettingTab {
             })
         );
     }
+
+    new Setting(containerEl)
+      .setName("Insert link in parent")
+      .setDesc("When creating a child zettel, insert a link to the child in the parent zettel")
+      .addToggle((setting) =>
+        setting.setValue(this.plugin.settings.insertLinkInParent).onChange(async (value) => {
+          this.plugin.settings.insertLinkInParent = value;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName("Insert link in child")
+      .setDesc("When creating a child zettel, insert a link to the parent in the child zettel")
+      .addToggle((setting) =>
+        setting.setValue(this.plugin.settings.insertLinkInChild).onChange(async (value) => {
+          this.plugin.settings.insertLinkInChild = value;
+          await this.plugin.saveSettings();
+        }));
   }
 }
 
@@ -334,7 +372,7 @@ export default class NewZettel extends Plugin {
     }
   ) {
     const useTemplate =
-      this.settings.templateFile && this.settings.templateFile.trim() != "";
+      this.settings.customTemplate && this.settings.templateFile.trim() != "";
     const app = this.app;
     let titleContent = null;
     if (title && title.length > 0) {
@@ -346,6 +384,7 @@ export default class NewZettel extends Plugin {
     let file = null;
     const backlinkRegex = /{{link}}/g;
     const titleRegex = /{{title}}/g;
+  
     if (useTemplate) {
       let template_content = "";
       try {
@@ -378,18 +417,23 @@ export default class NewZettel extends Plugin {
         return;
       }
 
+      const linkContent = this.settings.insertLinkInChild ? fileLink : "";
       const file_content = template_content
         .replace(titleRegex, titleContent)
-        .replace(backlinkRegex, fileLink);
+        .replace(backlinkRegex, linkContent);
       file = await this.app.vault.create(path, file_content);
       successCallback();
     } else {
-      const fullContent = titleContent + "\n\n" + fileLink;
+      const linkContent = this.settings.insertLinkInChild ? fileLink : "";
+      let fullContent = titleContent;
+      if (linkContent.trim()) {
+        fullContent += "\n\n" + linkContent;
+      }
       file = await this.app.vault.create(path, fullContent);
-
       successCallback();
     }
 
+    // Rest of the method remains the same...
     if (this.settings.addAlias && file) {
       await this.app.fileManager.processFrontMatter(file, (frontMatter) => {
         frontMatter = frontMatter || {};
@@ -414,11 +458,14 @@ export default class NewZettel extends Plugin {
 
     if (
       placeCursorAtStartOfContent &&
-      (!this.settings.templateFile || this.settings.templateFile.trim() == "")
+      (!this.settings.customTemplate || this.settings.templateFile.trim() == "")
     ) {
       let line = 2;
       if (this.settings.addAlias) {
         line += 4;
+      }
+      if (this.settings.insertLinkInChild && linkContent.trim()) {
+        line += 2; 
       }
       const position: EditorPosition = { line, ch: 0 };
       editor.setCursor(position);
@@ -467,11 +514,8 @@ export default class NewZettel extends Plugin {
           this.settings.addTitle ? this.settings.separator + title : ""
         }${alias}]]`;
       };
-      // const newLink = "[[" + nextID + "]]";
 
       if (selection) {
-        // This current solution eats line returns spaces but thats
-        // fine as it is turning the selection into a title so it makes sense
         const selectionTrimStart = selection.trimStart();
         const selectionTrimEnd = selectionTrimStart.trimEnd();
         const spaceBefore = selection.length - selectionTrimStart.length;
@@ -482,7 +526,7 @@ export default class NewZettel extends Plugin {
           .join(" ");
         const selectionPos = editor!.listSelections()[0];
         /* By default the anchor is what ever position the selection started
-           how ever replaceRange does not accept it both ways and 
+           how ever replaceRange does not accept it both ways and
            gets weird if we just pass in the anchor then the head
            so here we create a vertual anchor and head position to pass in */
         const anchorCorrect =
@@ -490,14 +534,13 @@ export default class NewZettel extends Plugin {
             ? selectionPos.anchor.ch <= selectionPos.head.ch // Then if anchor is before the head
             : selectionPos.anchor.line < selectionPos.head.line; // else they are not on the same line and just check if anchor is before head
 
-        // if anchorCorrect use as is, else switch
         const virtualAnchor = anchorCorrect
           ? selectionPos.anchor
           : selectionPos.head;
         const virtualHead = anchorCorrect
           ? selectionPos.head
           : selectionPos.anchor;
-        // editor!.replaceRange(" ".repeat(spaceBefore) + newLink(title) + " ".repeat(spaceAfter), virtualAnchor, virtualHead);
+
         this.makeNote(
           nextPath(title),
           title,
@@ -505,11 +548,14 @@ export default class NewZettel extends Plugin {
           true,
           openNewFile,
           () => {
-            editor!.replaceRange(
-              " ".repeat(spaceBefore) + newLink(title) + " ".repeat(spaceAfter),
-              virtualAnchor,
-              virtualHead
-            );
+            // Only insert link in parent if the setting is enabled
+            if (this.settings.insertLinkInParent) {
+              editor!.replaceRange(
+                " ".repeat(spaceBefore) + newLink(title) + " ".repeat(spaceAfter),
+                virtualAnchor,
+                virtualHead
+              );
+            }
           }
         );
       } else {
@@ -522,7 +568,8 @@ export default class NewZettel extends Plugin {
               fileLink,
               true,
               options.openNewZettel,
-              this.insertTextIntoCurrentNote(newLink(title))
+              // Only insert link in parent if the setting is enabled
+              this.settings.insertLinkInParent ? this.insertTextIntoCurrentNote(newLink(title)) : () => {}
             );
           },
           {
