@@ -1,5 +1,5 @@
 {
-  "name": "luhman-refactored",
+  "name": "luhman-remastered",
   "version": "2.0.0",
   "description": "Commands for handling a zettelkasten with Luhmann-style IDs as filenames",
   "main": "main.js",

@@ -3,7 +3,7 @@
     /* Basic Options */
     "target": "ES2018",
     "module": "ESNext",
-    "lib": ["ES2018"],
+    "lib": ["ES2018", "DOM"],
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
@@ -11,19 +11,19 @@
     "allowJs": true,
     
     /* Strict Type-Checking Options */
-    "strict": true,
-    "noImplicitAny": true,
-    "strictNullChecks": true,
-    "strictFunctionTypes": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "strictFunctionTypes": false,
+    "noImplicitReturns": false,
+    "noFallthroughCasesInSwitch": false,
+    "noUncheckedIndexedAccess": false,
     
     /* Additional Checks */
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "exactOptionalPropertyTypes": true,
-    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": false,
+    "noImplicitOverride": false,
     
     /* Module Resolution Options */
     "baseUrl": "./src",

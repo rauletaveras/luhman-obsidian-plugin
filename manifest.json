@@ -1,6 +1,6 @@
 {
-    "id": "luhman-refactored",
-    "name": "Luhman (refactored)",
+    "id": "luhman-remastered",
+    "name": "Luhman Remastered",
     "version": "2.0.0",
     "minAppVersion": "0.11.13",
     "description": "Commands for handling a zettelkasten with Luhmann-style IDs as filenames",

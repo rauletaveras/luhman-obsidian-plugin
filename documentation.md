@@ -1,4 +1,4 @@
-# Refactored Luhman-Obsidian-Plugin
+# Luhman Remastered
 
 ## Project Background
 
