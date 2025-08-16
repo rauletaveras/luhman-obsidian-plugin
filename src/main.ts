@@ -1,417 +1,483 @@
 import "./styles/styles.css";
-import { IDUtils } from "./id-utils";
+import { IDUtils } from "./id-utils.js";
 import { LuhmanSettingTab } from "./settings-tab";
 import { NewZettelModal, ZettelSuggester } from "./modals";
+import { NoteService } from "./note-service";
+import { TemplateService } from "./template-service";
+import { FileOperationsService, EditorService } from "./file-operations-service";
 import { DEFAULT_SETTINGS } from "./types";
 import type { LuhmanSettings } from "./types";
 
 import {
   App,
-  EditorPosition,
   MarkdownView,
-  Notice,
   Plugin,
   TFile,
 } from "obsidian";
 
-const checkSettingsMessage = "Try checking the settings if this seems wrong.";
-
+/**
+ * NewZettel Plugin for Obsidian
+ * 
+ * This plugin implements a Zettelkasten note-taking system with hierarchical IDs.
+ * Notes are organized by alphanumeric IDs (like 1, 1a, 1a1, 2, 2a, etc.) that
+ * encode parent-child relationships.
+ * 
+ * Main Features:
+ * - Create sibling notes (same hierarchy level): 1 -> 2 -> 3
+ * - Create child notes (deeper level): 1 -> 1a -> 1b or 1a1 -> 1a2
+ * - Automatic bidirectional linking between parent and child
+ * - Template support for consistent note formatting
+ * - Fuzzy search and navigation between notes
+ * 
+ * Architecture:
+ * - Main plugin class orchestrates operations and handles Obsidian integration
+ * - Service classes handle specific concerns (files, templates, business logic)
+ * - UI components handle user interaction (modals, settings)
+ * - IDUtils handles the core ID generation and parsing logic
+ */
 export default class NewZettel extends Plugin {
+  // Plugin configuration - loaded from Obsidian's data store
   settings: LuhmanSettings = DEFAULT_SETTINGS;
-  private idUtils!: IDUtils;
+  
+  // Core services - these handle the actual work
+  private idUtils!: IDUtils;              // ID parsing and generation
+  private noteService!: NoteService;      // Business logic for note operations
+  private templateService!: TemplateService;  // Template processing
+  private fileOps!: FileOperationsService;    // File system operations
+  private editorService!: EditorService;      // Text editor interactions
 
+  /**
+   * Plugin lifecycle: Loading settings and initializing services
+   * 
+   * This runs when Obsidian starts up or enables the plugin.
+   * We load user settings first, then initialize all our service classes.
+   */
   async loadSettings() {
+    // Merge user settings with defaults (like Rust's Config::default().merge(user_config))
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-    this.initializeIDUtils();
+    this.initializeServices();
   }
 
+  /**
+   * Save settings and reinitialize services.
+   * 
+   * Called whenever settings change. We reinitialize services because
+   * some of them depend on settings (like ID matching rules).
+   */
   async saveSettings() {
     await this.saveData(this.settings);
-    this.initializeIDUtils();
+    this.initializeServices();
   }
 
-  private initializeIDUtils() {
+  /**
+   * Initialize all service classes with current settings.
+   * 
+   * This is dependency injection - we create services with their dependencies
+   * rather than having them create their own. Makes testing easier.
+   */
+  private initializeServices() {
+    // ID utilities need settings and a way to check if IDs exist
     this.idUtils = new IDUtils(
       {
         matchRule: this.settings.matchRule,
         separator: this.settings.separator,
       },
-      (id: string) => this.idExistsChecker(id)
+      (id: string) => this.doesIdExist(id)
     );
+
+    // Business logic services
+    this.noteService = new NoteService(this.idUtils, this.settings);
+    this.templateService = new TemplateService(this.settings);
+    
+    // Infrastructure services
+    this.fileOps = new FileOperationsService(this.app, this.settings);
+    this.editorService = new EditorService(this.app);
   }
 
-  private idExistsChecker(id: string): boolean {
-    const fileMatcher = (file: TFile) => this.idUtils.fileToId(file.basename) === id;
-    return this.app.vault.getMarkdownFiles().filter(fileMatcher).length != 0;
+  /**
+   * Check if a note with given ID already exists.
+   * 
+   * This is passed to IDUtils so it can generate unique IDs.
+   * We search all markdown files for one with matching ID.
+   */
+  private doesIdExist(id: string): boolean {
+    const allFiles = this.fileOps.getAllMarkdownFiles();
+    return allFiles.some(file => this.idUtils.fileToId(file.basename) === id);
   }
 
-  makeNoteForNextSiblingOf(sibling: TFile): string {
-    return this.idUtils.makeNoteForNextSiblingOfID(this.idUtils.fileToId(sibling.basename));
-  }
-
-  makeNoteForNextChildOf(parent: TFile): string {
-    return this.idUtils.makeNoteForNextChildOfID(this.idUtils.fileToId(parent.basename));
-  }
-
-  async makeNote(
+  /**
+   * Main note creation workflow.
+   * 
+   * This is the core operation - it coordinates between all services to:
+   * 1. Process template (if using custom template)
+   * 2. Create the file with proper content
+   * 3. Add frontmatter aliases (if enabled)
+   * 4. Open the file and position cursor
+   * 5. Execute success callback (usually to insert links)
+   * 
+   * @param path - Full file path where note will be created
+   * @param title - User-provided title for the note
+   * @param parentLink - Link back to parent note (for bidirectional linking)
+   * @param placeCursorAtStart - Whether to position cursor at start of content
+   * @param openInEditor - Whether to open the new note in editor
+   * @param onSuccess - Callback executed after successful creation (for linking)
+   */
+  async createNote(
     path: string,
     title: string,
-    fileLink: string,
-    placeCursorAtStartOfContent: boolean,
-    openZettel = false,
-    successCallback: () => void = () => {
-      return;
-    }
+    parentLink: string,
+    placeCursorAtStart: boolean,
+    openInEditor = false,
+    onSuccess: () => void = () => {}
   ) {
-    const useTemplate =
-      this.settings.customTemplate && this.settings.templateFile.trim() != "";
-    const app = this.app;
-    let titleContent = null;
-    if (title && title.length > 0) {
-      titleContent = (useTemplate == false ? "# " : "") + title.trimStart();
-    } else {
-      titleContent = "";
-    }
+    try {
+      // Step 1: Determine content generation strategy
+      let noteContent: string;
+      let templateContent: string | null = null;
 
-    let file = null;
-    const backlinkRegex = /{{link}}/g;
-    const titleRegex = /{{title}}/g;
-    const linkContent = this.settings.insertLinkInChild ? fileLink : "";  
-
-    if (useTemplate) {
-      let template_content = "";
-      try {
-        template_content = await this.app.vault.adapter.read(
-          this.settings.templateFile.trim()
-        );
-      } catch (err) {
-        new Notice(
-          `[LUHMAN] Couldn't read template file. Make sure the path and file are valid/correct. Current setting: ${this.settings.templateFile.trim()}`,
-          15000
-        );
-        return;
-      }
-
-      const testTitle =
-        this.settings.templateRequireTitle == false ||
-        titleRegex.test(template_content);
-      const testLink =
-        this.settings.templateRequireLink == false ||
-        backlinkRegex.test(template_content);
-      if (testTitle == false || testLink == false) {
-        new Notice(
-          `[LUHMAN] Template Malformed. Missing {{${testTitle ? "" : "title"}${
-            testTitle == false && testLink == false ? "}} and {{" : ""
-          }${testLink ? "" : "link"}}} placeholder. Please add ${
-            testTitle == false && testLink == false ? "them" : "it"
-          } to the template and try again...`,
-          15000
-        );
-        return;
-      }
-
-      const file_content = template_content
-        .replace(titleRegex, titleContent)
-        .replace(backlinkRegex, linkContent);
-      file = await this.app.vault.create(path, file_content);
-      successCallback();
-    } else {
-      let fullContent = titleContent;
-      if (linkContent.trim()) {
-        fullContent += "\n\n" + linkContent;
-      }
-      file = await this.app.vault.create(path, fullContent);
-      successCallback();
-    }
-
-    if (this.settings.addAlias && file) {
-      await this.app.fileManager.processFrontMatter(file, (frontMatter) => {
-        frontMatter = frontMatter || {};
-        frontMatter.aliases = frontMatter.aliases || [];
-        frontMatter.aliases.push(title);
-        return frontMatter;
-      });
-    }
-
-    const active = app.workspace.getLeaf();
-    if (active == null) {
-      return;
-    }
-    if (openZettel == false) return;
-
-    await active.openFile(file);
-
-    const editor = app.workspace.getActiveViewOfType(MarkdownView)?.editor;
-    if (editor == null) {
-      return;
-    }
-
-    if (
-      placeCursorAtStartOfContent &&
-      (!this.settings.customTemplate || this.settings.templateFile.trim() == "")
-    ) {
-      let line = 2;
-      if (this.settings.addAlias) {
-        line += 4;
-      }
-      if (this.settings.insertLinkInChild && linkContent.trim()) {
-        line += 2; 
-      }
-      const position: EditorPosition = { line, ch: 0 };
-      editor.setCursor(position);
-    } else {
-      editor.exec("goEnd");
-    }
-  }
-
-  makeNoteFunction(idGenerator: (file: TFile) => string, openNewFile = true) {
-    const file = this.app.workspace.getActiveFile();
-    if (file == null) {
-      return;
-    }
-    if (this.idUtils.isZettelFile(file.name)) {
-      const fileID = this.idUtils.fileToId(file.basename);
-      const fileLink = "[[" + file.basename + "]]";
-
-      const editor =
-        this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
-      if (editor == null) {
-        return;
-      }
-
-      const selection = editor.getSelection();
-
-      const nextID = idGenerator.bind(this, file)();
-      const nextPath = (title: string) =>
-        file?.path
-          ? this.app.fileManager.getNewFileParent(file.path).path +
-            "/" +
-            nextID +
-            (this.settings.addTitle ? this.settings.separator + title : "") +
-            ".md"
-          : "";
-      const useLinkAlias = this.settings.useLinkAlias;
-      const newLink = (title: string) => {
-        const alias = useLinkAlias ? `|${title}` : "";
-
-        return `[[${nextID}${
-          this.settings.addTitle ? this.settings.separator + title : ""
-        }${alias}]]`;
-      };
-
-      if (selection) {
-        const selectionTrimStart = selection.trimStart();
-        const selectionTrimEnd = selectionTrimStart.trimEnd();
-        const spaceBefore = selection.length - selectionTrimStart.length;
-        const spaceAfter = selectionTrimStart.length - selectionTrimEnd.length;
-        const title = selectionTrimEnd
-          .split(/\s+/)
-          .map((w) => w[0].toUpperCase() + w.slice(1))
-          .join(" ");
-        const selectionPos = editor!.listSelections()[0];
-        const anchorCorrect =
-          selectionPos.anchor.line == selectionPos.head.line
-            ? selectionPos.anchor.ch <= selectionPos.head.ch
-            : selectionPos.anchor.line < selectionPos.head.line;
-
-        const virtualAnchor = anchorCorrect
-          ? selectionPos.anchor
-          : selectionPos.head;
-        const virtualHead = anchorCorrect
-          ? selectionPos.head
-          : selectionPos.anchor;
-
-        this.makeNote(
-          nextPath(title),
-          title,
-          fileLink,
-          true,
-          openNewFile,
-          () => {
-            if (this.settings.insertLinkInParent) {
-              editor!.replaceRange(
-                " ".repeat(spaceBefore) + newLink(title) + " ".repeat(spaceAfter),
-                virtualAnchor,
-                virtualHead
-              );
-            }
-          }
-        );
-      } else {
-        new NewZettelModal(
-          this.app,
-          (title: string, options) => {
-            this.makeNote(
-              nextPath(title),
-              title,
-              fileLink,
-              true,
-              options.openNewZettel,
-              this.settings.insertLinkInParent ? this.insertTextIntoCurrentNote(newLink(title)) : () => {}
+      if (this.templateService.shouldUseTemplate()) {
+        // Using custom template - read and validate it
+        try {
+          templateContent = await this.fileOps.readTemplateFile(this.settings.templateFile);
+          
+          const validation = this.templateService.validateTemplate(templateContent);
+          if (!validation.valid) {
+            this.editorService.showNotice(
+              `[LUHMAN] Template Malformed. ${validation.message}`,
+              15000
             );
-          },
-          {
-            openNewZettel: openNewFile,
+            return;
           }
-        ).open();
+        } catch (error) {
+          this.editorService.showNotice(
+            `[LUHMAN] ${error.message}`,
+            15000
+          );
+          return;
+        }
       }
-    } else {
-      new Notice(
-        `Couldn't find ID in "${file.basename}". ${checkSettingsMessage}`
+
+      // Step 2: Generate note content
+      const backlinkContent = this.settings.insertLinkInChild ? parentLink : "";
+      noteContent = this.templateService.generateNoteContent(
+        templateContent,
+        title,
+        backlinkContent
+      );
+
+      // Step 3: Create the file
+      const file = await this.fileOps.createFile(path, noteContent);
+      
+      // Step 4: Add aliases to frontmatter if enabled
+      if (this.settings.addAlias && title) {
+        await this.fileOps.addAliasToFile(file, title);
+      }
+
+      // Step 5: Execute success callback (this usually inserts parent link)
+      onSuccess();
+
+      // Step 6: Open file and position cursor if requested
+      if (openInEditor) {
+        await this.fileOps.openFile(file);
+        
+        if (placeCursorAtStart) {
+          const cursorPos = this.templateService.calculateCursorPosition(
+            this.settings.addAlias,
+            !!backlinkContent.trim(),
+            this.templateService.shouldUseTemplate()
+          );
+          this.editorService.setCursorPosition(cursorPos);
+        }
+      }
+      
+    } catch (error) {
+      this.editorService.showNotice(
+        `[LUHMAN] Failed to create note: ${error.message}`,
+        10000
       );
     }
   }
 
-  async renameZettel(id: string, toId: string) {
-    const sep = this.settings.separator;
-    const zettel = this.app.vault
-      .getMarkdownFiles()
-      .filter((file) => this.idUtils.fileToId(file.basename) === id)
-      .first();
-    if (zettel) {
-      const id = this.idUtils.fileToId(zettel.basename);
-      const rest = zettel.basename.split(id)[1];
-      this.app.fileManager.renameFile(
-        zettel,
-        zettel.parent?.path + toId + rest + "." + zettel.extension
+  /**
+   * Generic note creation function that handles both sibling and child creation.
+   * 
+   * This implements the common workflow:
+   * 1. Validate current file is a zettel
+   * 2. Generate appropriate ID (sibling or child)
+   * 3. Handle text selection OR show modal for title input
+   * 4. Create the note with proper linking
+   * 
+   * @param idGenerator - Function that generates the new note's ID
+   * @param openNewFile - Whether to open the created note in editor
+   */
+  private executeNoteCreation(
+    idGenerator: (file: TFile) => string, 
+    openNewFile = true
+  ) {
+    // Step 1: Get and validate current file
+    const currentFile = this.fileOps.getCurrentFile();
+    if (!currentFile) {
+      this.editorService.showNotice("No file is currently open");
+      return;
+    }
+
+    if (!this.noteService.isValidZettelFile(currentFile.name)) {
+      this.editorService.showNotice(
+        `Couldn't find ID in "${currentFile.basename}". Try checking the settings if this seems wrong.`
+      );
+      return;
+    }
+
+    // Step 2: Generate new note ID and prepare linking
+    const newNoteId = idGenerator(currentFile);
+    const parentLink = `[[${currentFile.basename}]]`;
+    
+    // Helper functions for note creation
+    const buildPath = (title: string) => {
+      const directory = this.fileOps.getNewFileDirectory(currentFile.path);
+      const separator = this.settings.addTitle ? this.settings.separator : "";
+      const titlePart = this.settings.addTitle ? title : "";
+      return `${directory}/${newNoteId}${separator}${titlePart}.md`;
+    };
+
+    const buildLink = (title: string) => {
+      return this.noteService.buildLinkText(newNoteId, title);
+    };
+
+    // Step 3: Handle existing selection OR show modal
+    const selectedText = this.editorService.getSelectedText();
+    
+    if (selectedText) {
+      // User has text selected - use it as title and replace with link
+      const title = this.noteService.processSelectedTextAsTitle(selectedText);
+      
+      this.createNote(
+        buildPath(title),
+        title,
+        parentLink,
+        true,
+        openNewFile,
+        () => {
+          // Replace selected text with link (if setting enabled)
+          if (this.settings.insertLinkInParent) {
+            this.editorService.replaceSelection(buildLink(title));
+          }
+        }
       );
     } else {
-      new Notice(`Couldn't find file for ID ${id}. ${checkSettingsMessage}`);
+      // No selection - show modal for title input
+      new NewZettelModal(
+        this.app,
+        (title: string, options) => {
+          this.createNote(
+            buildPath(title),
+            title,
+            parentLink,
+            true,
+            options.openNewZettel,
+            () => {
+              // Insert link at cursor (if setting enabled)
+              if (this.settings.insertLinkInParent) {
+                const insertFunction = this.editorService.prepareTextInsertion(buildLink(title));
+                insertFunction?.();
+              }
+            }
+          );
+        },
+        { openNewZettel: openNewFile }
+      ).open();
     }
   }
 
-  async moveChildrenDown(id: string) {
-    const children = this.getDirectChildZettels(id);
+  /**
+   * Hierarchy management: Moving notes and reorganizing structure
+   * 
+   * These operations maintain the integrity of the ID hierarchy when
+   * notes are moved around. Complex because children must move with parents.
+   */
+
+  /**
+   * Rename a zettel from one ID to another.
+   * 
+   * Preserves everything after the ID (title, extension) while changing the ID.
+   * Example: "1a - My Note.md" -> "2b - My Note.md"
+   */
+  async renameZettel(fromId: string, toId: string) {
+    const file = this.fileOps.findFile(
+      file => this.idUtils.fileToId(file.basename) === fromId
+    );
+    
+    if (file) {
+      const currentId = this.idUtils.fileToId(file.basename);
+      const restOfFilename = file.basename.substring(currentId.length);
+      const newBasename = toId + restOfFilename;
+      
+      await this.fileOps.renameFile(file, newBasename);
+    } else {
+      this.editorService.showNotice(
+        `Couldn't find file for ID ${fromId}. Try checking the settings if this seems wrong.`
+      );
+    }
+  }
+
+  /**
+   * Move all children of a note to new IDs (recursively).
+   * 
+   * When we move a parent note, all its children need new IDs too.
+   * This prevents ID conflicts in the hierarchy.
+   */
+  async moveChildrenDown(parentId: string) {
+    const allZettels = this.noteService.filterZettelFiles(this.fileOps.getAllMarkdownFiles());
+    const children = this.noteService.findDirectChildren(parentId, allZettels);
+    
+    // Move each child (which will recursively move their children)
     for (const child of children) {
-      await this.moveZettelDown(this.idUtils.fileToId(child.basename));
+      const childId = this.idUtils.fileToId(child.basename);
+      await this.moveZettelDown(childId);
     }
   }
 
+  /**
+   * Move a zettel and all its children to next available IDs.
+   * 
+   * Used when we need to "make room" in the ID space for insertions.
+   */
   async moveZettelDown(id: string) {
-    this.moveChildrenDown(id);
-    await this.renameZettel(id, this.idUtils.firstAvailableID(id));
+    await this.moveChildrenDown(id);  // Move children first
+    
+    const nextAvailableId = this.idUtils.firstAvailableID(id);
+    await this.renameZettel(id, nextAvailableId);
   }
 
+  /**
+   * Move a note up one level in the hierarchy (outdent).
+   * 
+   * Example: 1a2 becomes 1b (sibling of 1a instead of child)
+   * Complex because we need to handle conflicts and move children.
+   */
   async outdentZettel(id: string) {
-    const newID = this.idUtils.incrementID(this.idUtils.parentID(id));
-    if (this.idUtils.idExists(newID)) {
-      await this.moveZettelDown(newID);
+    const parentId = this.idUtils.parentID(id);
+    if (!parentId) {
+      this.editorService.showNotice("Note is already at top level");
+      return;
     }
 
-    for (const child of this.getDirectChildZettels(id)) {
-      const newChildID: string = this.idUtils.firstAvailableID(
-        this.idUtils.firstChildOf(newID)
+    // Calculate new ID (next sibling of current parent)
+    const newId = this.idUtils.incrementID(parentId);
+    
+    // If target ID exists, move it out of the way
+    if (this.doesIdExist(newId)) {
+      await this.moveZettelDown(newId);
+    }
+
+    // Move all children to be children of the new ID
+    const allZettels = this.noteService.filterZettelFiles(this.fileOps.getAllMarkdownFiles());
+    const children = this.noteService.findDirectChildren(id, allZettels);
+    
+    for (const child of children) {
+      const childId = this.idUtils.fileToId(child.basename);
+      const newChildId = this.idUtils.firstAvailableID(
+        this.idUtils.firstChildOf(newId)
       );
-      await this.renameZettel(this.idUtils.fileToId(child.basename), newChildID);
+      await this.renameZettel(childId, newChildId);
     }
 
-    await this.renameZettel(id, newID);
+    // Finally, rename the note itself
+    await this.renameZettel(id, newId);
   }
 
-  getZettels(): TFile[] {
-    const fileToId = (file: TFile) => this.idUtils.fileToId(file.basename);
-    return this.app.vault.getMarkdownFiles().filter((file) => {
-      const ignore = !file.path.match(/^(_layouts|templates|scripts)/);
-      return ignore && fileToId(file) !== "";
-    });
+  /**
+   * Navigation and search functionality
+   */
+
+  /**
+   * Open a zettel by its ID.
+   * 
+   * Simple navigation function - finds file with given ID and opens it.
+   */
+  async openZettelById(id: string) {
+    const file = this.fileOps.findFile(
+      file => this.idUtils.fileToId(file.basename) === id
+    );
+    
+    if (file) {
+      await this.fileOps.openFile(file);
+    } else {
+      this.editorService.showNotice(`No zettel found with ID: ${id}`);
+    }
   }
 
-  getDirectChildZettels(ofParent: string): TFile[] {
-    return this.getZettels().filter((file) => {
-      return this.idUtils.parentID(this.idUtils.fileToId(file.basename)) == ofParent;
-    });
-  }
-
-  async getAllNoteTitles(): Promise<Map<string, TFile>> {
-    const regex = /# (.+)\s*/;
+  /**
+   * Get titles for all zettels by parsing their content.
+   * 
+   * Reads the first heading (# Title) from each zettel file.
+   * Used for fuzzy search functionality.
+   */
+  async getAllZettelTitles(): Promise<Map<string, TFile>> {
+    const titleRegex = /# (.+)\s*/;  // Matches "# Title" at start of line
     const titles: Map<string, TFile> = new Map();
-    for (const file of this.getZettels()) {
-      const text = await this.app.vault.cachedRead(file);
-      const match = text.match(regex);
+    
+    const allZettels = this.noteService.filterZettelFiles(
+      this.fileOps.getAllMarkdownFiles()
+    );
+    
+    for (const file of allZettels) {
+      const content = await this.fileOps.readFileContent(file);
+      const match = content.match(titleRegex);
       if (match) {
-        titles.set(match[1], file);
+        titles.set(match[1], file);  // Map title -> file
       }
     }
 
     return titles;
   }
 
-  currentFile(): TFile | undefined {
-    return this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
-  }
-
-  openZettel(id: string) {
-    const file = this.app.vault
-      .getMarkdownFiles()
-      .filter((file) => this.idUtils.fileToId(file.basename) == id)
-      .first();
-    if (file) {
-      this.app.workspace.getLeaf().openFile(file);
-    }
-  }
-
-  currentlySelectedText(): string | undefined {
-    return this.app.workspace
-      .getActiveViewOfType(MarkdownView)
-      ?.editor.getSelection();
-  }
-
-  insertTextIntoCurrentNote(text: string) {
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-
-    if (view) {
-      const editor = view!.editor;
-
-      let position: EditorPosition;
-      let prefix = "";
-
-      if (editor.getSelection()) {
-        const selectionPos = editor.listSelections()[0];
-        const positionCH = Math.max(
-          selectionPos.head.ch,
-          selectionPos.anchor.ch
-        );
-        position = { line: selectionPos.anchor.line, ch: positionCH + 1 };
-        prefix = " ";
-      } else {
-        position = editor.getCursor();
-      }
-
-      return () => {
-        editor.replaceRange(prefix + text, position, position);
-      };
-    }
-  }
-
+  /**
+   * Plugin lifecycle: Register commands and initialize
+   * 
+   * This runs when the plugin loads. We register all the commands that
+   * users can trigger via hotkeys or command palette.
+   */
   async onload() {
-    console.log("loading New Zettel");
-    this.loadSettings();
+    console.log("Loading New Zettel plugin");
+    
+    // Initialize settings and services
+    await this.loadSettings();
     this.addSettingTab(new LuhmanSettingTab(this.app, this));
 
+    // Note creation commands
     this.addCommand({
       id: "new-sibling-note",
       name: "New Sibling Zettel Note",
       icon: "file-symlink",
       callback: () => {
-        this.makeNoteFunction(this.makeNoteForNextSiblingOf);
+        this.executeNoteCreation(
+          (file) => this.noteService.generateSiblingId(file)
+        );
       },
     });
 
     this.addCommand({
-      id: "new-child-note",
+      id: "new-child-note", 
       name: "New Child Zettel Note",
       icon: "file-down",
       callback: () => {
-        this.makeNoteFunction(this.makeNoteForNextChildOf);
+        this.executeNoteCreation(
+          (file) => this.noteService.generateChildId(file)
+        );
       },
     });
 
+    // Note creation commands (don't open new file)
     this.addCommand({
       id: "new-sibling-note-dont-open",
       name: "New Sibling Zettel Note (Don't Open)",
-      icon: "file-symlink",
+      icon: "file-symlink", 
       callback: () => {
-        this.makeNoteFunction(this.makeNoteForNextSiblingOf, false);
+        this.executeNoteCreation(
+          (file) => this.noteService.generateSiblingId(file),
+          false  // Don't open new file
+        );
       },
     });
 
@@ -420,29 +486,36 @@ export default class NewZettel extends Plugin {
       name: "New Child Zettel Note (Don't Open)",
       icon: "file-down",
       callback: () => {
-        this.makeNoteFunction(this.makeNoteForNextChildOf, false);
+        this.executeNoteCreation(
+          (file) => this.noteService.generateChildId(file),
+          false  // Don't open new file
+        );
       },
     });
 
+    // Link insertion and navigation commands
     this.addCommand({
       id: "insert-zettel-link",
       name: "Insert Zettel Link",
       icon: "link-2",
       callback: async () => {
-        const titles = await this.getAllNoteTitles();
+        const titles = await this.getAllZettelTitles();
+        
         new ZettelSuggester(
           this.app,
           titles,
-          this.currentlySelectedText(),
+          this.editorService.getSelectedText(),
           (file) => {
-            const doInsert = this.insertTextIntoCurrentNote(
+            const insertFunction = this.editorService.prepareTextInsertion(
               `[[${file.basename}]]`
             );
-            if (doInsert == undefined)
-              new Notice(
-                "Error inserting link, Code: 6a46de1d-a8da-4dae-af41-9d444eaf3d4d"
+            if (!insertFunction) {
+              this.editorService.showNotice(
+                "Error inserting link - no active editor"
               );
-            else doInsert();
+            } else {
+              insertFunction();
+            }
           }
         ).open();
       },
@@ -451,16 +524,16 @@ export default class NewZettel extends Plugin {
     this.addCommand({
       id: "open-zettel",
       name: "Open Zettel",
-      icon: "folder-open",
+      icon: "folder-open", 
       callback: async () => {
-        const titles = await this.getAllNoteTitles();
-
+        const titles = await this.getAllZettelTitles();
+        
         new ZettelSuggester(
           this.app,
           titles,
-          this.currentlySelectedText(),
+          this.editorService.getSelectedText(),
           (file) => {
-            this.app.workspace.getLeaf().openFile(file);
+            this.fileOps.openFile(file);
           }
         ).open();
       },
@@ -468,40 +541,51 @@ export default class NewZettel extends Plugin {
 
     this.addCommand({
       id: "open-parent-zettel",
-      name: "Open Parent Zettel",
+      name: "Open Parent Zettel", 
       icon: "folder-open",
       callback: () => {
-        const file = this.currentFile();
-        if (file) {
-          const id = this.idUtils.fileToId(file.basename);
-          const parentId = this.idUtils.parentID(id);
-          if (parentId === "") {
-            new Notice(
-              `No parent found for "${file.basename}". ${checkSettingsMessage}`
-            );
-            return;
-          }
-          this.openZettel(parentId);
-        } else {
-          new Notice("No file open");
+        const currentFile = this.fileOps.getCurrentFile();
+        if (!currentFile) {
+          this.editorService.showNotice("No file open");
+          return;
         }
+
+        const currentId = this.idUtils.fileToId(currentFile.basename);
+        const parentId = this.idUtils.parentID(currentId);
+        
+        if (!parentId) {
+          this.editorService.showNotice(
+            `No parent found for "${currentFile.basename}". Try checking the settings if this seems wrong.`
+          );
+          return;
+        }
+
+        this.openZettelById(parentId);
       },
     });
 
+    // Hierarchy manipulation commands
     this.addCommand({
       id: "outdent-zettel",
       name: "Outdent Zettel",
       icon: "outdent",
       callback: () => {
-        const file = this.currentFile();
-        if (file) {
-          this.outdentZettel(this.idUtils.fileToId(file.basename));
+        const currentFile = this.fileOps.getCurrentFile();
+        if (currentFile) {
+          const currentId = this.idUtils.fileToId(currentFile.basename);
+          this.outdentZettel(currentId);
+        } else {
+          this.editorService.showNotice("No file open");
         }
       },
     });
   }
 
+  /**
+   * Plugin lifecycle: Cleanup
+   */
   onunload() {
-    console.log("unloading New Zettel");
+    console.log("Unloading New Zettel plugin");
+    // No cleanup needed - Obsidian handles it
   }
 }

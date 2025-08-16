@@ -1,3 +1,5 @@
+import type { LuhmanSettings } from "./types";
+
 /**
  * Handles template processing and content generation.
  * 
