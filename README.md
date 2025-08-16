@@ -5,8 +5,10 @@
 Commands for handling a zettelkasten with Luhmann-style IDs (e.g: 12a56g) as filenames
 
 ## Maintenance Status
-This is a community fork maintained by someone who knows *just enough* 
-TypeScript to be dangerous. I can:
+This is a community fork "maintained"
+by someone who knows *just enough* TypeScript
+to be dangerous.
+I can:
 - ✅ Merge simple bug fixes
 - ✅ Update documentation
 - ❌ Add complex new features
@@ -14,7 +16,9 @@ TypeScript to be dangerous. I can:
 
 PRs welcome, especially from actual TypeScript developers!
 
-### Incorporated fixes
+AI-generated general documentation: [[documentation.md]]
+
+### Incorporated changes from upstream:
 - [PR #60: feat: Add setting to not include link in parent when creating child note](https://github.com/Dyldog/luhman-obsidian-plugin/pull/60): Addresses [#54](https://github.com/Dyldog/luhman-obsidian-plugin/issues/54)
 - [Commit #80a7387](https://github.com/barnes7td/luhman-obsidian-plugin/commit/80a7387bf3b82a2f6f822b4d50ec534d4278ccbb): Fixes [#52](https://github.com/Dyldog/luhman-obsidian-plugin/issues/52)
 
@@ -22,15 +26,21 @@ PRs welcome, especially from actual TypeScript developers!
 
 ### Create child notes
 
-Creates a note **under** the current note, e.g: If run from "23f3.md", "12f3a.md" (or the next available sibling) will be created. 
+Creates a note **under** the current note,
+e.g: If run from "23f3.md", "12f3a.md" (or the next available sibling) will be created. 
 
-If you have text selected, that will be used as the title for your new note. Otherwise, you will be prompted to enter a title.
+If you have text selected,
+that will be used as the title for your new note.
+Otherwise, you will be prompted to enter a title.
 
 ### Create sibling note
 
-Creates a note **next to** the current note, e.g: If run from "23f3.md", "12f4.md" (or the next available sibling) will be created. 
+Creates a note **next to** the current note,
+e.g: If run from "23f3.md", "12f4.md" (or the next available sibling) will be created. 
 
-If you have text selected, that will be used as the title for your new note. Otherwise, you will be prompted to enter a title.
+If you have text selected,
+that will be used as the title for your new note.
+Otherwise, you will be prompted to enter a title.
 
 ### Open zettel
 
@@ -38,13 +48,8 @@ Allows you to search for files by their inner markdown title (i.e: the first H1 
 
 ### Insert Zettel link
 
-Lets you search by markdown titles like the "Open zettel" command above, but inserts a link to the file instead of opening it.
-
-## Current Maintainers
-
-- [brannonh](https://github.com/brannonh)
-- [eforen](https://github.com/eforen)
-- [jvanz](https://github.com/jvanz)
+Lets you search by markdown titles like the "Open zettel" command above,
+but inserts a link to the file instead of opening it.
 
 ## Contributors
 
