@@ -1,5 +1,5 @@
 import "./styles/styles.css";
-import { IDUtils } from "./id-utils.ts";
+import { IDUtils } from "./id-utils.js";
 
 import {
   App,
@@ -14,38 +14,6 @@ import {
   Setting,
   TFile,
 } from "obsidian";
-
-const idOnlyRegex = /([0-9]+|[a-z]+)/g;
-const checkSettingsMessage = "Try checking the settings if this seems wrong.";
-
-const lettersIDComponentSuccessors: Record<string, string> = {
-  a: "b",
-  b: "c",
-  c: "d",
-  d: "e",
-  e: "f",
-  f: "g",
-  g: "h",
-  h: "i",
-  i: "j",
-  j: "k",
-  k: "l",
-  l: "m",
-  m: "n",
-  n: "o",
-  o: "p",
-  p: "q",
-  q: "r",
-  r: "s",
-  s: "t",
-  t: "u",
-  u: "v",
-  v: "w",
-  w: "x",
-  x: "y",
-  y: "z",
-  z: "aa",
-};
 
 interface LuhmanSettings {
   matchRule: string;
@@ -259,107 +227,42 @@ class LuhmanSettingTab extends PluginSettingTab {
 
 export default class NewZettel extends Plugin {
   settings: LuhmanSettings = DEFAULT_SETTINGS;
+  private idUtils: IDUtils;
 
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.initializeIDUtils();
   }
 
   async saveSettings() {
     await this.saveData(this.settings);
+    this.initializeIDUtils();
   }
 
-  incrementStringIDComponent(id: string): string {
-    const comps = id.split("");
-    const last = comps.pop()!;
-    return comps.concat([lettersIDComponentSuccessors[last]]).join("");
+// Add this new method:
+  private initializeIDUtils() {
+    this.idUtils = new IDUtils(
+      {
+        matchRule: this.settings.matchRule,
+        separator: this.settings.separator,
+      },
+      (id: string) => this.idExistsChecker(id)
+    );
   }
 
-  incrementNumberIDComponent(id: string): string {
-    return (parseInt(id) + 1).toString();
-  }
-
-  isNumber(string: string): boolean {
-    return /^\d+$/.test(string);
-  }
-
-  incrementIDComponent(id: string): string {
-    if (this.isNumber(id)) {
-      return this.incrementNumberIDComponent(id);
-    } else {
-      return this.incrementStringIDComponent(id);
-    }
-  }
-
-  incrementID(id: string): string {
-    const parts = id.match(idOnlyRegex)!;
-    const lastPart = parts.pop()!;
-    return parts.concat([this.incrementIDComponent(lastPart)]).join("");
-  }
-
-  parentID(id: string): string {
-    const parts = id.match(idOnlyRegex)!;
-    if (parts) {
-      parts.pop();
-      return parts.join("");
-    } else {
-      return "";
-    }
-  }
-
-  nextComponentOf(id: string): string {
-    const parts = id.match(idOnlyRegex)!;
-    const lastPart = parts.pop()!;
-    if (this.isNumber(lastPart)) {
-      return "a";
-    } else {
-      return "1";
-    }
-  }
-
-  firstChildOf(parentID: string): string {
-    return parentID + this.nextComponentOf(parentID);
-  }
-
-  fileToId(filename: string): string {
-    const ruleRegexes: Record<string, RegExp> = {
-      strict: /^((?:[0-9]+|[a-z]+)+)$/,
-      separator: new RegExp(
-        `^((?:[0-9]+|[a-z]+)+)${this.settings.separator}.*`
-      ),
-      fuzzy: /^((?:[0-9]+|[a-z]+)+).*/,
-    };
-    const match = filename.match(ruleRegexes[this.settings.matchRule]);
-    if (match) {
-      return match[1];
-    }
-    return "";
-  }
-
-  idExists(id: string): boolean {
-    const fileMatcher = (file: TFile) => this.fileToId(file.basename) === id;
+ // Add this helper method:
+  private idExistsChecker(id: string): boolean {
+    const fileMatcher = (file: TFile) => this.idUtils.fileToId(file.basename) === id;
     return this.app.vault.getMarkdownFiles().filter(fileMatcher).length != 0;
   }
 
-  firstAvailableID(startingID: string): string {
-    let nextID = startingID;
-    while (this.idExists(nextID)) {
-      nextID = this.incrementID(nextID);
-    }
-    return nextID;
-  }
-
+// Replace the removed methods with these:
   makeNoteForNextSiblingOf(sibling: TFile): string {
-    const nextID = this.firstAvailableID(
-      this.incrementID(this.fileToId(sibling.basename))
-    );
-    return nextID;
+    return this.idUtils.makeNoteForNextSiblingOfID(this.idUtils.fileToId(sibling.basename));
   }
 
   makeNoteForNextChildOf(parent: TFile): string {
-    const childID = this.firstAvailableID(
-      this.firstChildOf(this.fileToId(parent.basename))
-    );
-    return childID;
+    return this.idUtils.makeNoteForNextChildOfID(this.idUtils.fileToId(parent.basename));
   }
 
   async makeNote(
@@ -475,19 +378,13 @@ export default class NewZettel extends Plugin {
     }
   }
 
-  isZettelFile(name: string): boolean {
-    const mdRegex = /(.*)\.md$/;
-    const matchedName = mdRegex.exec(name)?.[1] || null;
-    return matchedName != null && this.fileToId(matchedName) !== "";
-  }
-
   makeNoteFunction(idGenerator: (file: TFile) => string, openNewFile = true) {
     const file = this.app.workspace.getActiveFile();
     if (file == null) {
       return;
     }
-    if (this.isZettelFile(file.name)) {
-      const fileID = this.fileToId(file.basename);
+    if (this.idUtils.isZettelFile(file.name)) {
+      const fileID = this.idUtils.fileToId(file.basename);
       const fileLink = "[[" + file.basename + "]]";
 
       const editor =
@@ -589,10 +486,10 @@ export default class NewZettel extends Plugin {
     const sep = this.settings.separator;
     const zettel = this.app.vault
       .getMarkdownFiles()
-      .filter((file) => this.fileToId(file.basename) === id)
+      .filter((file) => this.idUtils.fileToId(file.basename) === id)
       .first();
     if (zettel) {
-      const id = this.fileToId(zettel.basename);
+      const id = this.idUtils.fileToId(zettel.basename);
       const rest = zettel.basename.split(id)[1];
       this.app.fileManager.renameFile(
         zettel,
@@ -606,26 +503,26 @@ export default class NewZettel extends Plugin {
   async moveChildrenDown(id: string) {
     const children = this.getDirectChildZettels(id);
     for (const child of children) {
-      await this.moveZettelDown(this.fileToId(child.basename));
+      await this.moveZettelDown(this.idUtils.fileToId(child.basename));
     }
   }
 
   async moveZettelDown(id: string) {
     this.moveChildrenDown(id);
-    await this.renameZettel(id, this.firstAvailableID(id));
+    await this.renameZettel(id, this.idUtils.firstAvailableID(id));
   }
 
   async outdentZettel(id: string) {
-    const newID = this.incrementID(this.parentID(id));
-    if (this.idExists(newID)) {
+    const newID = this.idUtils.incrementID(this.idUtils.parentID(id));
+    if (this.idUtils.idExists(newID)) {
       await this.moveZettelDown(newID);
     }
 
     for (const child of this.getDirectChildZettels(id)) {
-      const newChildID: string = this.firstAvailableID(
-        this.firstChildOf(newID)
+      const newChildID: string = this.idUtils.firstAvailableID(
+        this.idUtils.firstChildOf(newID)
       );
-      await this.renameZettel(this.fileToId(child.basename), newChildID);
+      await this.renameZettel(this.idUtils.fileToId(child.basename), newChildID);
     }
 
     await this.renameZettel(id, newID);
@@ -723,8 +620,8 @@ export default class NewZettel extends Plugin {
       callback: () => {
         const file = this.currentFile();
         if (file) {
-          const id = this.fileToId(file.basename);
-          const parentId = this.parentID(id);
+          const id = this.idUtils.fileToId(file.basename);
+          const parentId = this.idUtils.parentID(id);
           if (parentId === "") {
             new Notice(
               `No parent found for "${file.basename}". ${checkSettingsMessage}`
@@ -745,7 +642,7 @@ export default class NewZettel extends Plugin {
       callback: () => {
         const file = this.currentFile();
         if (file) {
-          this.outdentZettel(this.fileToId(file.basename));
+          this.outdentZettel(this.idUtils.fileToId(file.basename));
         }
       },
     });
@@ -763,7 +660,7 @@ export default class NewZettel extends Plugin {
   openZettel(id: string) {
     const file = this.app.vault
       .getMarkdownFiles()
-      .filter((file) => this.fileToId(file.basename) == id)
+      .filter((file) => this.idUtils.fileToId(file.basename) == id)
       .first();
     if (file) {
       this.app.workspace.getLeaf().openFile(file);
@@ -804,7 +701,7 @@ export default class NewZettel extends Plugin {
   }
 
   getZettels(): TFile[] {
-    const fileToId = (file: TFile) => this.fileToId(file.basename);
+    const fileToId = (file: TFile) => this.idUtils.fileToId(file.basename);
     return this.app.vault.getMarkdownFiles().filter((file) => {
       const ignore = !file.path.match(/^(_layouts|templates|scripts)/);
       return ignore && fileToId(file) !== "";
@@ -813,7 +710,7 @@ export default class NewZettel extends Plugin {
 
   getDirectChildZettels(ofParent: string): TFile[] {
     return this.getZettels().filter((file) => {
-      return this.parentID(this.fileToId(file.basename)) == ofParent;
+      return this.idUtils.parentID(this.idUtils.fileToId(file.basename)) == ofParent;
     });
   }
 

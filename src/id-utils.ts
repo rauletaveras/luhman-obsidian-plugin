@@ -1,5 +1,8 @@
 // id-utils.ts
 
+// Contains the refactored ID identification and manipulation functions
+// from upstreams main.ts
+
 const idOnlyRegex = /([0-9]+|[a-z]+)/g;
 
 const lettersIDComponentSuccessors: Record<string, string> = {
