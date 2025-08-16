@@ -1,5 +1,7 @@
 import "./styles/styles.css";
-import { IDUtils } from "./id-utils.js";
+import { IDUtils } from "./id-utils";
+import { LuhmanSettingTab } from "settings-tab";
+import { DEFAULT_SETTINGS, type LuhmanSettings } from "./types";
 
 import {
   App,
