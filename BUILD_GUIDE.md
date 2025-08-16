@@ -113,7 +113,7 @@ Run `npm run lint` to auto-fix most issues.
 
 This build setup uses:
 - **esbuild** - The modern standard for Obsidian plugins (much faster than Rollup)
-- **TypeScript 5.5+** with strict mode enabled
+<!-- - **TypeScript 5.5+** with strict mode enabled -->
 - **Modern ESLint** with TypeScript support
 - **Prettier** for consistent formatting
 - **Up-to-date dependencies** (as of 2024)

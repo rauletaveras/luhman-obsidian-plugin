@@ -52,10 +52,10 @@ export default [
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-non-null-assertion': 'warn',
-      // '@typescript-eslint/no-var-requires': 'error',
+      '@typescript-eslint/no-var-requires': 'warn',
       'no-console': 'off',
-      // 'prefer-const': 'error',
-      // 'no-var': 'error',
+      'prefer-const': 'warn',
+      'no-var': 'warn',
     },
   },
   // Ignore patterns (equivalent to ignorePatterns in .eslintrc.json)

@@ -9,8 +9,6 @@ import { DEFAULT_SETTINGS } from "./types";
 import type { LuhmanSettings } from "./types";
 
 import {
-  App,
-  MarkdownView,
   Plugin,
   TFile,
 } from "obsidian";
@@ -132,7 +130,6 @@ export default class NewZettel extends Plugin {
   ) {
     try {
       // Step 1: Determine content generation strategy
-      let noteContent: string;
       let templateContent: string | null = null;
 
       if (this.templateService.shouldUseTemplate()) {
@@ -159,7 +156,7 @@ export default class NewZettel extends Plugin {
 
       // Step 2: Generate note content
       const backlinkContent = this.settings.insertLinkInChild ? parentLink : "";
-      noteContent = this.templateService.generateNoteContent(
+      const noteContent: string = this.templateService.generateNoteContent(
         templateContent,
         title,
         backlinkContent

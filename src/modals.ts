@@ -23,7 +23,7 @@ export class NewZettelModal extends Modal {
      ** Model Title                   **
      ***********************************/
     const { contentEl } = this;
-    contentEl.parentElement!.addClass("zettel-modal");
+    contentEl.parentElement?.addClass("zettel-modal");
     this.titleEl.setText("New zettel title...");
 
     /***********************************
@@ -55,8 +55,7 @@ export class NewZettelModal extends Modal {
       value: "GO",
       cls: "zettel-modal-button",
     });
-    button.addEventListener("click", (e: Event) => this.goTapped());
-    main_container.append(button);
+    button.addEventListener("click", (_e: Event) => this.goTapped());    main_container.append(button);
 
     contentEl.append(main_container);
 
@@ -168,7 +167,10 @@ export class ZettelSuggester extends FuzzySuggestModal<string> {
     range.surroundContents(document.createElement("b"));
   }
 
-  onChooseItem(item: string, evt: MouseEvent | KeyboardEvent) {
-    this.completion(this.titles.get(item)!);
-  }
+  onChooseItem(item: string, _evt: MouseEvent | KeyboardEvent) {
+    const file = this.titles.get(item);
+      if (file) {
+        this.completion(file);
+      }
+    }
 }

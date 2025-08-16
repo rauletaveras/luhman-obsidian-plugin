@@ -48,10 +48,10 @@ export class IDUtils {
 
   incrementStringIDComponent(id: string): string {
     const comps = id.split("");
-    const last = comps.pop()!;
+    const last = comps.pop();
+    if (!last) return id; // Handle edge case
     return comps.concat([lettersIDComponentSuccessors[last]]).join("");
   }
-
   incrementNumberIDComponent(id: string): string {
     return (parseInt(id) + 1).toString();
   }
@@ -69,14 +69,16 @@ export class IDUtils {
   }
 
   incrementID(id: string): string {
-    const parts = id.match(idOnlyRegex)!;
-    const lastPart = parts.pop()!;
+    const parts = id.match(idOnlyRegex);
+    if (!parts || parts.length === 0) return id; // Handle null case
+    const lastPart = parts.pop();
+    if (!lastPart) return id; // Handle edge case
     return parts.concat([this.incrementIDComponent(lastPart)]).join("");
   }
 
   parentID(id: string): string {
-    const parts = id.match(idOnlyRegex)!;
-    if (parts) {
+    const parts = id.match(idOnlyRegex);
+    if (parts && parts.length > 0) {
       parts.pop();
       return parts.join("");
     } else {
@@ -85,8 +87,10 @@ export class IDUtils {
   }
 
   nextComponentOf(id: string): string {
-    const parts = id.match(idOnlyRegex)!;
-    const lastPart = parts.pop()!;
+    const parts = id.match(idOnlyRegex);
+    if (!parts || parts.length === 0) return "a"; // Default fallback
+    const lastPart = parts.pop();
+    if (!lastPart) return "a"; // Default fallback
     if (this.isNumber(lastPart)) {
       return "a";
     } else {

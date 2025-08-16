@@ -15,7 +15,7 @@ export class FileOperationsService {
   constructor(
     private app: App,
     private settings: LuhmanSettings
-  ) {}
+  ) { }
 
   /**
    * Creates a new file with given content.
@@ -28,10 +28,10 @@ export class FileOperationsService {
   async createFile(path: string, content: string): Promise<TFile> {
     try {
       return await this.app.vault.create(path, content);
-    } catch (error) {
+    } catch (_error) {
       // In Rust, we'd return Result<TFile, Error>
       // TypeScript uses exceptions instead
-      throw new Error(`Failed to create file at ${path}: ${error}`);
+      throw new Error(`Failed to create file at ${path}: ${_error}`);
     }
   }
 
@@ -44,14 +44,14 @@ export class FileOperationsService {
   async readTemplateFile(templatePath: string): Promise<string> {
     try {
       return await this.app.vault.adapter.read(templatePath.trim());
-    } catch (error) {
-      // Convert file system error to user-friendly message
-      throw new Error(
-        `Couldn't read template file. Make sure the path and file are valid. ` +
-        `Current setting: ${templatePath.trim()}`
-      );
-    }
-  }
+    } catch {
+          // Convert file system error to user-friendly message
+          throw new Error(
+            `Couldn't read template file. Make sure the path and file are valid. ` +
+            `Current setting: ${templatePath.trim()}`
+          );
+        }
+      }
 
   /**
    * Adds frontmatter aliases to a file.
@@ -82,7 +82,7 @@ export class FileOperationsService {
   async renameFile(file: TFile, newBasename: string): Promise<void> {
     const directory = file.parent?.path || "";
     const newPath = `${directory}/${newBasename}.${file.extension}`;
-    
+
     await this.app.fileManager.renameFile(file, newPath);
   }
 
@@ -158,7 +158,7 @@ export class FileOperationsService {
  * not file system operations. In a web app, this would be like DOM manipulation.
  */
 export class EditorService {
-  constructor(private app: App) {}
+  constructor(private app: App) { }
 
   /**
    * Gets the active markdown editor, if any.
@@ -202,7 +202,7 @@ export class EditorService {
     const spaceAfter = trimStart.length - trimEnd.length;
 
     const selectionRange = editor.listSelections()[0];
-    
+
     // Handle selection direction (user can select backwards)
     const isForward = this.isSelectionForward(selectionRange);
     const start = isForward ? selectionRange.anchor : selectionRange.head;
@@ -218,7 +218,7 @@ export class EditorService {
    * Users can drag to select in either direction. We need to know which
    * end is the "start" for text replacement.
    */
-  private isSelectionForward(selection: any): boolean {
+  private isSelectionForward(selection: { anchor: { line: number; ch: number }; head: { line: number; ch: number } }): boolean {
     if (selection.anchor.line === selection.head.line) {
       return selection.anchor.ch <= selection.head.ch;
     }

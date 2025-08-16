@@ -1,4 +1,4 @@
-import { TFile, Notice } from "obsidian";
+import { TFile } from "obsidian";
 import { IDUtils } from "./id-utils";
 import type { LuhmanSettings } from "./types";
 
