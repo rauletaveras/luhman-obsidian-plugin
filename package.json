@@ -1,6 +1,6 @@
 {
-    "name": "luhman",
-    "version": "1.2.0",
+    "name": "luhman-refactored",
+    "version": "2.0.0",
     "description": "Commands for handling a zettelkasten with Luhmann-style IDs as filenames",
     "main": "main.js",
     "scripts": {
@@ -11,7 +11,13 @@
         "release-beta": "dotenv release-it -- --config .release-it-beta.json",
         "build": "rollup --config rollup.config.js --environment BUILD:production"
     },
-    "keywords": [],
+    "keywords": [
+    "obsidian",
+    "plugin",
+    "zettelkasten",
+    "notes",
+    "hierarchy"
+    ],
     "author": "",
     "license": "MIT",
     "dependencies": {
